@@ -14,33 +14,93 @@
 #include <Servo.h> 
 
 /*-----( Declare Constants )-----*/
-int receiver = 8; // pin 1 of IR receiver to Arduino digital pin 8
+#define receiver 8 // pin 1 of IR receiver to Arduino digital pin 8
 
 // Motor 1
-int dir1PinA = 7;
-int dir2PinA = 5;
-int speedPinA = 6; // Needs to be a PWM pin to be able to control motor speed
+#define dir1PinA 7
+#define dir2PinA 5
+#define speedPinA 6 // Needs to be a PWM pin to be able to control motor speed
 
 // Motor 2
-int dir1PinB = 2;
-int dir2PinB = 4;
-int speedPinB = 3; // Needs to be a PWM pin to be able to control motor speed
+#define dir1PinB 2
+#define dir2PinB 4
+#define speedPinB 3 // Needs to be a PWM pin to be able to control motor speed
 
-int ir1Pin = 0;
-int ir2Pin = 1;
-int ir3Pin = 12;
-int ir4Pin = 13;
+#define ir1Pin 0
+#define ir2Pin 1
+#define ir3Pin 12
+#define ir4Pin 13
 
-int servoPin = 10;
+#define servoPin 10
+
+#define echoPin 11
+#define trigPin 9
 
 /*-----( Declare objects )-----*/
 IRrecv irrecv(receiver);           // create instance of 'irrecv'
 decode_results results;            // create instance of 'decode_results'
 Servo servo;  // create servo object to control a servo 
-int servoPos = 0;
+#define middlePos 70
 int servoDelta = 5;
+int maxRange = 200; // Maximum range needed
+int minRange = 0; // Minimum range needed
+int val;
+long duration; // Duration used to calculate distance
+int servoPositions[] = {middlePos-70,middlePos,middlePos+70,middlePos}; 
+int servoPosIndex = 0;
+
+#define stateInitial 0
+#define stateVooruit 1
+#define stateDraaien 2
+int state = stateInitial;
+int richting = 0;
+#define maxSpeed 255
 /*-----( Declare Variables )-----*/
 
+
+void loop()   /*----( LOOP: RUNS CONSTANTLY )----*/
+{
+  long d;
+  switch (state) {
+    case stateInitial:
+      servo.write(middlePos);              // tell servo to go to position in variable 'pos' 
+      Vooruit();
+      state = stateVooruit;
+      break;
+    case stateVooruit:
+      d = measureDistance();
+      if (d < 30) {
+        state = stateDraaien;
+        richting++;
+        if (richting > 20) {
+          richting = 0;
+        }
+        Stop();
+        if (richting <= 20) {
+          Linksaf();
+        } else {
+          Rechtsaf();
+        }
+      }
+      break;
+     case stateDraaien:
+       d = measureDistance();
+       if (d > 30) {
+         state = stateVooruit;
+         Stop();
+         Vooruit();
+       }
+       break;
+  }
+
+/*  if (irrecv.decode(&results)) // have we received an IR signal?
+
+  {
+//    Serial.println(results.value, HEX);  UN Comment to see raw values
+    translateIR(); 
+    irrecv.resume(); // receive the next value
+  }*/  
+}/* --(end main loop )-- */
 
 
 void setup()   /*----( SETUP: RUNS ONCE )----*/
@@ -62,15 +122,18 @@ void setup()   /*----( SETUP: RUNS ONCE )----*/
   pinMode(ir2Pin, INPUT);
   pinMode(ir3Pin, INPUT);
   pinMode(ir4Pin, INPUT);
-  
+
+  // Define ultra sonic pins
+  pinMode(trigPin, OUTPUT);
+  pinMode(echoPin, INPUT);
+ 
   // Define servo pin as output 
   servo.attach(servoPin);
 }/*--(end setup )---*/
 
-
 void MotorRechtsVooruit()
 {
-analogWrite(speedPinA, 255);//Sets speed variable via PWM 
+analogWrite(speedPinA, maxSpeed);//Sets speed variable via PWM 
 digitalWrite(dir1PinA, LOW);
 digitalWrite(dir2PinA, HIGH);
 Serial.println("Motor 1 Forward"); // Prints out “Motor 1 Forward” on the serial monitor
@@ -86,7 +149,7 @@ Serial.println("Motor 1 Stop");
 
 void MotorRechtsAchteruit()
 {
-analogWrite(speedPinA, 255);
+analogWrite(speedPinA, maxSpeed);
 digitalWrite(dir1PinA, HIGH);
 digitalWrite(dir2PinA, LOW);
 Serial.println("Motor 1 Reverse");
@@ -94,7 +157,7 @@ Serial.println("Motor 1 Reverse");
 
 void MotorLinksVooruit()
 {
-analogWrite(speedPinB, 255);
+analogWrite(speedPinB, maxSpeed);
 digitalWrite(dir1PinB, LOW);
 digitalWrite(dir2PinB, HIGH);
 Serial.println("Motor 2 Forward");
@@ -110,7 +173,7 @@ Serial.println("Motor 2 Stop");
 
 void MotorLinksAchteruit()
 {
-analogWrite(speedPinB, 255);
+analogWrite(speedPinB, maxSpeed);
 digitalWrite(dir1PinB, HIGH);
 digitalWrite(dir2PinB, LOW);
 Serial.println("Motor 2 Reverse");
@@ -146,28 +209,48 @@ void Stop()
   MotorLinksStop();
 }
 
+long measureDistance() {
+  servo.write(servoPositions[servoPosIndex]);
+  delay(150);
+  servoPosIndex++;
+  if (servoPosIndex>= 4) {
+    servoPosIndex = 0;
+  }
+  
+  long d;
+  digitalWrite(trigPin, LOW); 
+  delayMicroseconds(2); 
+  
+  digitalWrite(trigPin, HIGH);
+  delayMicroseconds(10); 
+  
+  digitalWrite(trigPin, LOW);
+  duration = pulseIn(echoPin, HIGH);
+  
+  //Calculate the distance (in cm) based on the speed of sound.
+  d = duration/58.2;
 
-void loop()   /*----( LOOP: RUNS CONSTANTLY )----*/
-{
-    servo.write(servoPos);              // tell servo to go to position in variable 'pos' 
-    delay(15);                       // waits 15ms for the servo to reach the position 
-    servoPos = servoPos + servoDelta;
-    if (servoPos > 180) {
-      servoPos = 180;
-      servoDelta = -servoDelta;
-    } else if (servoPos < 0) {
-      servoPos = 0;
-      servoDelta = -servoDelta;
-    }
+  if ((d < minRange) || (d > maxRange)) {
+    return maxRange;
+  } else {
+    return d;
+  }
+}
 
-  if (irrecv.decode(&results)) // have we received an IR signal?
-
-  {
-//    Serial.println(results.value, HEX);  UN Comment to see raw values
-    translateIR(); 
-    irrecv.resume(); // receive the next value
-  }  
-}/* --(end main loop )-- */
+void readIR() {
+  val = digitalRead(ir1Pin);
+  Serial.print("IR1: ");
+  Serial.println(val);
+  val = digitalRead(ir2Pin);
+  Serial.print("IR2: ");
+  Serial.println(val);
+  val = digitalRead(ir3Pin);
+  Serial.print("IR3: ");
+  Serial.println(val);
+  val = digitalRead(ir4Pin);
+  Serial.print("IR4: ");
+  Serial.println(val);
+}
 
 /*-----( Declare User-written Functions )-----*/
 void translateIR() // takes action based on IR code received
