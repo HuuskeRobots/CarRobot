@@ -40,18 +40,22 @@
 IRrecv irrecv(receiver);           // create instance of 'irrecv'
 decode_results results;            // create instance of 'decode_results'
 Servo servo;  // create servo object to control a servo 
-#define middlePos 70
-int servoDelta = 5;
-int maxRange = 200; // Maximum range needed
-int minRange = 0; // Minimum range needed
+#define middlePos 98
+#define maxServoPos middlePos+70
+#define minServoPos middlePos-70
+
+#define maxRange 200 // Maximum range needed
+#define minRange 0 // Minimum range needed
 int val;
-long duration; // Duration used to calculate distance
-int servoPositions[] = {middlePos-70,middlePos,middlePos+70,middlePos}; 
-int servoPosIndex = 0;
+
+int servoPos = middlePos;
+int servoPosDelta = 25;
+int servoSteps = ((maxServoPos - minServoPos) / servoPosDelta)+1;
 
 #define stateInitial 0
 #define stateVooruit 1
-#define stateDraaien 2
+#define stateDraaiLinks 2
+#define stateDraaiRechts 3
 int state = stateInitial;
 int richting = 0;
 #define maxSpeed 255
@@ -70,21 +74,30 @@ void loop()   /*----( LOOP: RUNS CONSTANTLY )----*/
     case stateVooruit:
       d = measureDistance();
       if (d < 30) {
-        state = stateDraaien;
-        richting++;
-        if (richting > 20) {
-          richting = 0;
-        }
         Stop();
-        if (richting <= 20) {
-          Linksaf();
+        if (servoPos > middlePos) {
+          state = stateDraaiLinks;
         } else {
-          Rechtsaf();
+          state = stateDraaiRechts;
         }
       }
       break;
-     case stateDraaien:
-       d = measureDistance();
+     case stateDraaiLinks:
+       Linksaf();
+       delay(250);
+       Stop();
+       d = measureDistanceAll();
+       if (d > 30) {
+         state = stateVooruit;
+         Stop();
+         Vooruit();
+       }
+       break;
+     case stateDraaiRechts:
+       Rechtsaf();
+       delay(250);
+       Stop();
+       d = measureDistanceAll();
        if (d > 30) {
          state = stateVooruit;
          Stop();
@@ -209,15 +222,29 @@ void Stop()
   MotorLinksStop();
 }
 
-long measureDistance() {
-  servo.write(servoPositions[servoPosIndex]);
-  delay(150);
-  servoPosIndex++;
-  if (servoPosIndex>= 4) {
-    servoPosIndex = 0;
+long measureDistanceAll() {
+  int i;
+  long r = maxRange;
+  for (i = 0; i <= servoSteps; i++) {
+      r = min(r, measureDistance());
   }
+  return r;
+}
+
+long measureDistance() {
+  servoPos += servoPosDelta;
+  if (servoPos > maxServoPos) {
+    servoPos = maxServoPos;
+    servoPosDelta = -servoPosDelta;
+  } else if (servoPos < minServoPos) {
+    servoPos = minServoPos;
+    servoPosDelta = -servoPosDelta;    
+  }
+  servo.write(servoPos);
+  delay(75);
+  //Serial.print("servoPos: ");
+  //Serial.println(servoPos);
   
-  long d;
   digitalWrite(trigPin, LOW); 
   delayMicroseconds(2); 
   
@@ -225,12 +252,15 @@ long measureDistance() {
   delayMicroseconds(10); 
   
   digitalWrite(trigPin, LOW);
-  duration = pulseIn(echoPin, HIGH);
+  long duration = pulseIn(echoPin, HIGH, 25000);
   
   //Calculate the distance (in cm) based on the speed of sound.
-  d = duration/58.2;
+  long d = duration/58.2;
 
-  if ((d < minRange) || (d > maxRange)) {
+  Serial.print("distance: ");
+  Serial.println(d);
+
+  if ((d <= minRange) || (d > maxRange)) {
     return maxRange;
   } else {
     return d;
